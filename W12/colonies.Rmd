@@ -1,0 +1,528 @@
+---
+title: "Colonial Past"
+author: "Johanne Elkær Hansen"
+date: "21/03-2025"
+output:
+  html_document:
+    toc: true
+    theme: united
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, 
+                      messages = FALSE)
+```
+# Overall design
+
+When comparing the effect of a certain event, e.g. colonialism, we need to inspect and statistically assess not only what happened with the affected countries, but also the non-affected countries. Inspection relates not only to the calculation and diachronic statistical overview of GDP, but consideration of other potentially impactful factors, such as colonial power, start century,  and duration of colonization.  It is important to articulate expectations behind these factors, such as with duration of colonial rule: one might hypothesize that colonizers with long experience would have experienced mismanagement and learned to manage their colonies reasonably well. Newcomers will be catching up and erring on the side of overreaction and brutality. 
+First, it is good to generate visuals, describe the trends, answer the starting questions and develop new ones; inspect potential causalities and comment on outliers. 
+Second, test trends emerging in the visuals for significance. Eyes and charts are seductive not not always 'right'. How do you test what differences actually matter? Here, many tests can be administered, but we shall start with linear regression.   
+
+# Load libraries and create the data
+```{r libraries}
+library(tidyverse)
+library(gapminder)
+library(sf)
+```
+
+```{r colonized}
+# Create a dataframe for colonized countries
+colonized_data <- data.frame(
+  Country = c('India', 'Australia', 'Hong Kong, China','Canada', 'South Africa','Algeria', 'Vietnam', 'Morocco', 'Brazil', 'Mozambique',  'Indonesia', 'Suriname', 'Congo, Dem. Rep.', 'Rwanda', 'Namibia', 'Somalia', 'Libya', 'Eritrea', 'Philippines', 'Puerto Rico', 'Kazakhstan', 'Georgia', 'Moldova', 'Afghanistan', 'Tanzania',  'Czech Republic', 'Slovakia', 'Romania',  'Serbia', 'Bulgaria'),
+  Colonial_Overlord = c('United Kingdom', 'United Kingdom','United Kingdom','United Kingdom', 'United Kingdom', 'France', 'France', 'France', 'Portugal', 'Portugal', 'Netherlands', 'Netherlands', 'Belgium','Belgium', 'Germany', 'Italy', 'Italy','Italy', 'United States', 'United States', 'Russia', 'Russia','Russia', 'United Kingdom', 'Germany', 'Austria', 'Austria','Austria', 'Turkey','Turkey' ),
+  Years_of_Colonization = c(190, 132, 156, 108, 120, 132, 67, 44, 322, 477, 350, 235, 80, 40, 35, 36, 31, 62, 48, 126, 250, 108,103 ,80, 44,300, 500, 300, 350, 350 )
+)
+
+# Save the dataframe as CSV
+#dir.create("data")
+write.csv(colonized_data, "data/colonized_countries.csv", row.names = FALSE)
+
+```
+
+Check other sources for Western and Asian imperialism for Africa and Asia and the Americas. Some examples are:
+https://www.reddit.com/media?url=https%3A%2F%2Fpreview.redd.it%2Flw1qqtmaxl841.png%3Fauto%3Dwebp%26s%3D45a5eee700205f4d24f36c1f116a84a60233dae6
+https://accordingtophillips.weebly.com/uploads/8/1/8/3/81833274/imperialism-in-asia-1900_orig.jpg 
+https://s3.amazonaws.com/s3.timetoast.com/public/uploads/photos/3841662/imper.gif?1474580603 
+```{r uncolonized}
+# Create a dataframe for non-colonized countries
+not_colonized_data <- data.frame(
+  Country = c('Japan', 'Korea, Rep.', 'Thailand', 'Turkey', 'Saudi Arabia', 'Iran', 'Iceland', 
+              'Sweden', 'Norway', 'Switzerland', 'Afghanistan', 'Bhutan', 'Nepal', 'Liberia', 
+              'Mongolia', 'Korea, Dem. Rep.', 'Ethiopia', 'Tonga', 'Tibet', 'Haiti',  
+               'Luxembourg', 'Lesotho', 'Malta', 'Swaziland', 'Chile', 'China'),
+  Reasonably_Prosperous = c('YES', 'YES', 'YES', 'YES', 'YES', 'YES', 'YES', 
+                            'YES', 'YES', 'YES', 'NO', 'NO', 'NO', 'NO', 
+                            'NO', 'NO', 'NO', 'NO', 'NO', 'NO',  
+                             'YES',  'NO', 'YES', 'NO', 'YES', 'NO')
+)
+
+# Save the dataframe as CSV
+write.csv(not_colonized_data, "data/not_colonized_countries.csv", row.names = FALSE)
+```
+
+In order to check economic development, we need to connect the selected country lists with the econmic indicators from the gapminder data. We join them using `left_join` function on the Country column. For the join to work, the spelling of a country in both lists needs to be identical. 
+Check if you are spelling your countries identically to gapminder. Beware that the standard gapminder dataset is `filtered` and does not contain all the countries of the world, for example Denmark! If your country is missing,  load and use the `unfiltered` gapminder.
+```{r join-countries-to-gapminder}
+# filtered gapminder
+unique(gapminder$country)
+
+# unfiltered gapminder
+data("gapminder_unfiltered")
+unique(gapminder_unfiltered$country)
+
+# compare the values to your (un-)colonized datasets
+sort(unique(colonized_data$Country))
+sort(unique(not_colonized_data$Country))
+
+# join gapminder data with your country lists
+colonized_data <- colonized_data %>% 
+  left_join(gapminder_unfiltered, by = c("Country" = "country"))
+not_colonized_data <- not_colonized_data %>% 
+  left_join(gapminder_unfiltered, by = c("Country" = "country"))
+```
+
+# Explore the data with descriptive statistics
+Start with basic descriptive statistics for both groups to get an overview of central tendencies and variability.
+
+* Mean: Compare the average GDP per capita for colonized vs. non-colonized countries.
+* Median: Useful to mitigate the influence of outliers.
+* Variance: Compare the spread of GDP per capita values between the two groups.
+* Range: The range can give you an idea of the economic diversity in each group.
+
+This provides a first glance at whether there's a significant difference between the economic outcomes of the two groups.
+
+```{r eval=TRUE}
+ggplot(colonized_data, aes(x = year, y = gdpPercap, group = Country, color = Country))+
+  geom_line()+
+   labs(title = "Mean GDP Over Time by Country", 
+       x = "Year", 
+       y = "Mean GDP (in USD)") + 
+  theme_minimal() +                      # Minimal theme for a clean look
+  theme(legend.position = "right")     
+```
+
+
+# Measure the effect of colonial power
+
+Does it make sense to calculate GDP for all countries grouped by colonial power?
+
+```{r eval=TRUE}
+colonized_data %>% 
+  select(Country, Colonial_Overlord) %>% 
+  distinct(Country, Colonial_Overlord)
+
+colonized_summary <- colonized_data %>% 
+  filter(year %in% unique(gapminder$year)) %>% 
+  group_by(Colonial_Overlord, year) %>% 
+  summarize(gdpPerGroup = sum(gdpPercap)) 
+
+ggplot(colonized_summary, aes(x = year, y = gdpPerGroup, group = Colonial_Overlord, color = Colonial_Overlord))+
+  geom_line()+
+   labs(title = "Mean GDP Over Time by Colonial power", 
+       x = "Year", 
+       y = "Mean GDP (in USD)") + 
+  theme_minimal() +                      # Minimal theme for a clean look
+  theme(legend.position = "right")  
+```
+
+What's going on with the steps in 1982, 1987, in some of the groups?
+```{r eval=TRUE}
+colonized_data %>% 
+  filter(Colonial_Overlord == "United Kingdom") %>% 
+  filter(year == 1982 |year == 1983 | year == 1987| year == 1988) %>% 
+  arrange(year)
+
+# years xxx3 and xxx8 seems the problematic ones in the UK case, but others are in the other countries. Use gapminder reduced data years, those seem to exist everywhere?
+colonized_data %>%
+  filter(year == 1967 |year == 1978|year == 1983 |year == 1988|year==1992| year == 2002 )%>% 
+  arrange(year)
+```
+ 
+# Who is the best and worst colonial master?
+ 
+We summarize colonies by their masters and then log their summed gdp to see the difference in development in the last 50 years.
+```{r eval=TRUE}
+# Load required libraries
+library(ggplot2)
+library(ggrepel)
+
+# Assuming your data frame is 'colonized_data'
+colonized_summary <- colonized_data %>% 
+  filter(year %in% unique(gapminder$year)) %>% 
+  filter(!grepl("3$|8$", year)) %>% 
+  group_by(Colonial_Overlord, year) %>% 
+  summarize(gdpPerGroup = sum(gdpPercap))
+
+# Find the last year for each country to label
+last_year_data <- colonized_summary %>% 
+  group_by(Colonial_Overlord) %>% 
+  filter(year == max(year))  # Get the data for the last year per country
+
+# Create the plot
+ggplot(colonized_summary, aes(x = year, y = log(gdpPerGroup), group = Colonial_Overlord, color = Colonial_Overlord))+
+  geom_line()+
+  geom_text_repel(data = last_year_data,      # Use the last year data for labeling
+                  aes(label = Colonial_Overlord),       # Label each country at the last data point
+                  nudge_x = 15,                # Nudges labels slightly to the right for clarity
+                  direction = "y",            # Keep labels vertical
+                  hjust = 0,                # Align the labels horizontally to the left
+                  max.overlaps = 20)+
+   labs(title = "Mean GDP Over Time by Colonial power (natural log)", 
+       x = "Year", 
+       y = "Mean GDP (in USD)") + 
+  theme_minimal()  #+                     # Minimal theme for a clean look
+  #theme(legend.position = "none")             # Hide the legend since we have direct labels
+
+```
+
+Most colonial regimes ended after WW2, so let's look at the effect in 30 years
+```{r eval=TRUE}
+# Find the last year for each country to label
+last_year_data <- colonized_summary %>% 
+  group_by(Colonial_Overlord) %>% 
+  filter(year == 1980)  # Get the data for the last year per country
+
+
+ggplot(colonized_summary %>% filter(year < 1980), aes(x = year, y = log(gdpPerGroup), group = Colonial_Overlord, color = Colonial_Overlord))+
+  geom_line()+
+  geom_text_repel(data = last_year_data,      # Use the last year data for labeling
+                  aes(label = Colonial_Overlord),       # Label each country at the last data point
+                  nudge_x = 15,                # Nudges labels slightly to the right for clarity
+                  direction = "y",            # Keep labels vertical
+                  hjust = 0) +                # Align the labels horizontally to the left
+   labs(title = "Mean GDP Over Time by Colonial power (1950 - 1980)", 
+       x = "Year", 
+       y = "Mean GDP (in USD)") + 
+  theme_minimal() 
+
+```
+
+# What is the situation with the *not-colonized* counterparts?
+
+```{r eval=TRUE}
+# let's check their results
+ggplot(not_colonized_data, aes(x = year, y = gdpPercap, group = Country, color = Country))+
+  geom_line()+
+  # geom_text_repel(data = last_year_data,      # Use the last year data for labeling
+  #                 aes(label = Colonial_Overlord),       # Label each country at the last data point
+  #                 nudge_x = 15,                # Nudges labels slightly to the right for clarity
+  #                 direction = "y",            # Keep labels vertical
+  #                 hjust = 0) +                # Align the labels horizontally to the left
+   labs(title = "Not colonized for long (or at all): Mean GDP Over Time", 
+       x = "Year", 
+       y = "Mean GDP percapita (in USD)") + 
+  theme_minimal() 
+
+```
+
+It is hard to see which country is which, so let's add some labels. Expand the graph at the end, so as to see the lines and labels clearly.
+```{r eval=TRUE} 
+nc_last_year_data <- not_colonized_data %>% 
+  group_by(Country) %>% 
+  filter(year == max(year))  # Get the data for the last year per country
+
+
+# Expand this chart once it plots as it is rather detailed
+not_colonized_data %>% 
+  ggplot(aes(x = year, y = gdpPercap, group = Country, color = Country))+
+  geom_line()+
+  geom_text_repel(data = nc_last_year_data,      # Use the last year data for labeling
+                  aes(label = Country),       # Label each country at the last data point
+                  nudge_x = 15,                # Nudges labels slightly to the right for clarity
+                  direction = "y",            # Keep labels vertical
+                  hjust = 0) +                # Align the labels horizontally to the left
+   labs(title = "Not colonized for long (or at all): Mean GDP Over Time", 
+       x = "Year", 
+       y = "Total GDP (in USD)") + 
+  theme_minimal() +
+  theme(legend.position = "none") 
+
+```
+
+# Does "not being a colony" guarantee affluence?
+
+Explore the bottom members of the not-colonized company. 
+Create percentiles of wealth and group not-colonized countries by them. Who is at the bottom. How deep is the bottom compared to the worst-off colonies?
+```{r eval=TRUE}
+not_colonized_data <- not_colonized_data %>% 
+  mutate(totalGdp = pop * gdpPercap) 
+
+# Consider whether we should be summarizing total or per capita GDP
+not_colonized_ntiles <- not_colonized_data %>% 
+  filter(year %in% unique(gapminder$year)) %>% 
+  group_by(year) %>% 
+  mutate(quantileGdp = ntile(gdpPercap, 5))  
+
+not_colonized_summary <- not_colonized_ntiles %>% 
+  group_by(year, quantileGdp) %>% 
+    summarize(gdpPerGroup = sum(gdpPercap),
+              meangdpPerGroup = mean(gdpPercap))
+not_colonized_ntiles
+
+# Find the last year for each country to label
+ntile_last_year_data <- not_colonized_ntiles %>% 
+  group_by(quantileGdp) %>% 
+  filter(year == max(year)) %>% 
+  summarize(gdpPerGroup = sum(gdpPercap)) # Get the data for the last year per country
+
+```
+
+Let's log the y-axis so we spread the data and can better see the differences in orders of magnitude.
+```{r eval=TRUE}
+# Logarithmic y axis!
+ggplot(not_colonized_ntiles, aes(x = year, y = log10(gdpPercap), group = Country, color = Country))+
+  geom_line()+
+  geom_text_repel(data = nc_last_year_data,      # Use the last year data for labeling
+                  aes(label = Country),       # Label each country at the last data point
+                  nudge_x = 15,                # Nudges labels slightly to the right for clarity
+                  direction = "y",            # Keep labels vertical
+                  hjust = 0) +                # Align the labels horizontally to the left
+   labs(title = "Mean GDP Over Time by country", 
+       x = "Year", 
+       y = "Mean GDP (in USD)") + 
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+
+We can also group countries by GDP into quantiles (exactly 5 groupings from the poorest to the richest) and plot these. It is not super meaningful chart, but exploring who is in which group at the start and the end does point to countries' varied economic (and political) fortunes.
+```{r eval=TRUE}
+
+not_colonized_ntiles
+
+# How are the best and worst countries moving economically over the last 60 years?
+not_colonized_summary <- not_colonized_ntiles %>% 
+    arrange(desc(year)) %>% 
+    group_by(year, quantileGdp) %>% 
+    summarize(gdpPerGroup = sum(gdpPercap),
+              meangdpPerGroup = mean(gdpPercap)) %>% 
+   mutate(quantileGdp = as.factor(quantileGdp))
+
+not_colonized_summary
+
+# Extract data for the last year to use in geom_text_repel
+ntile_last_year_data <- not_colonized_summary %>%
+  group_by(quantileGdp) %>%
+  filter(year == max(year))  # Extract the last year for each quantile
+ntile_last_year_data
+
+ggplot(not_colonized_summary, aes(x = year, y = gdpPerGroup, group = quantileGdp, color = quantileGdp))+
+  geom_line()+
+  geom_text_repel(data = ntile_last_year_data,      # Use the last year data for labeling
+                  aes(x = year, y = gdpPerGroup, label = quantileGdp),       # Label each country at the last data point
+                  nudge_x = 5,                # Nudges labels slightly to the right for clarity
+                  direction = "y",            # Keep labels vertical
+                  hjust = 0) +                # Align the labels horizontally to the left
+   labs(title = "Mean GDP Over Time by quantile", 
+       x = "Year", 
+       y = "Mean GDP (in USD)") + 
+  theme_minimal() 
+
+```
+```{r eval=TRUE}
+# Who is in groups 1 and 5 at the start and the end?
+
+not_colonized_ntiles %>% 
+  filter(year == 1957 & quantileGdp == 5) %>% 
+  select(Country, gdpPercap)
+
+not_colonized_ntiles %>% 
+  filter(year >2002 & quantileGdp == 5) %>% 
+  select(Country, gdpPercap)
+
+# Where is China in all this and how does its progress compare to e.g. Saudi Arabia?
+not_colonized_ntiles %>% 
+  filter(Country == "China") %>% 
+  select(year, gdpPercap, quantileGdp)
+
+not_colonized_ntiles %>% 
+  filter(Country == "Saudi Arabia") %>% 
+  select(year, gdpPercap, quantileGdp)
+
+# Can you think of other 'climbers'?
+not_colonized_ntiles %>% 
+  filter(Country == "Thailand") %>% 
+  select(year, gdpPercap, quantileGdp)
+
+not_colonized_ntiles %>% 
+  filter(Country == "Korea, Rep.") %>% 
+  select(year, gdpPercap, quantileGdp)
+
+```
+
+
+# Significance testing 1: Does the colonial overlord matter?
+```{r eval=TRUE}
+# Run a basic linear regression model
+model <- lm(gdpPercap ~ Colonial_Overlord, data = colonized_data)
+
+# Summary of the regression results
+summary(model)
+
+```
+### How to interpret the summary?
+
+* Coefficients on Colonial_Overlord: These will show how GDP differs depending on which colonial power ruled a country. If some powers had more detrimental impacts, their coefficients will be more negative (assuming GDP is used as the dependent variable).
+* Coefficient on Colonial_Duration: This will tell you how an additional year of colonization impacts GDP per capita, on average, across all colonial powers.
+* R-squared: This will tell you how much of the variation in GDP per capita is explained by the model.
+
+# Significance testing 2: Does the duration of colonialism matter?
+```{r eval=TRUE}
+model_interaction <- lm(gdpPercap ~ Years_of_Colonization * factor(Colonial_Overlord), data = colonized_data)
+summary(model_interaction)
+
+```
+### How do you interpret this model summary?
+
+* Colonial Duration: This coefficient shows the general effect of an additional year of colonization across all colonial powers, assuming no interaction.
+* Colonial Overlord: This coefficient shows the effect of the specific colonial power, assuming no interaction with the duration.
+* Interaction Term: The interaction term measures how the effect of each additional year of colonization differs depending on the colonial overlord.
+
+Significance codes tell you if the different could have arisen by chance or not? 0 = no chance, 1 = all chance
+R-squared amount tells you how much of the data is explained by this model. 1 = 100%. If below 1, other factors are in play. In our case, consider existing regimes (dictator ship, socialist episode,  starting development level    etc.)
+
+# Visualize the model results
+```{r eval=TRUE}
+# Extract model coefficients
+coefficients <- as.data.frame(coef(summary(model_interaction)))
+
+# Create a column for variable names
+coefficients$Variable <- rownames(coefficients)
+
+# Split into main effects (Colonial_Overlord) and interaction terms (Colonial_Overlord × Year)
+main_effects <- coefficients %>%
+  filter(grepl("Colonial_Overlord", Variable) & !grepl(":", Variable)) %>%  # Only colonial overlord effects
+  mutate(Country = sub(".*factor\\(Colonial_Overlord\\)", "", Variable))  # Extract the country name
+
+interaction_effects <- coefficients %>%
+  filter(grepl("Colonial_Overlord", Variable) & grepl(":", Variable)) #%>%    # Only interaction terms
+
+interaction_effects_clean <- interaction_effects %>%
+  mutate(Country = sub(".*factor\\(Colonial_Overlord\\)", "", Variable))  # Extract the country name
+
+options(scipen = 999)
+```
+
+## Plot 1: Main Effects of Colonial Overlord
+```{r eval=TRUE}
+# Plot 1: Main Effects of Colonial Overlord
+Main_effects <- ggplot(main_effects, aes(x = reorder(Country, Estimate), y = Estimate)) +
+  geom_point() +
+  geom_errorbar(aes(ymin = Estimate - 1.96 * `Std. Error`, ymax = Estimate + 1.96 * `Std. Error`)) +
+  labs(title = "Main Effects of Colonial Overlord on GDP per Capita",
+       x = "Colonial Overlord",
+       y = "Coefficient Estimate") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  # Rotate x-axis labels
+Main_effects
+```
+
+## Plot 2: Interaction Effects of Colonial Overlord × Year on GDP per Capita
+
+```{r eval=TRUE}
+# Plot 2: Interaction Effects of Colonial Overlord × Year on GDP per Capita
+Effects_GDP <- ggplot(interaction_effects_clean, aes(x = reorder(Country, Estimate), y = Estimate)) +
+  geom_point() +
+  geom_errorbar(aes(ymin = Estimate - 1.96 * `Std. Error`, ymax = Estimate + 1.96 * `Std. Error`)) +
+  labs(title = "Interaction Effects of Colonial Overlord × Year on GDP per Capita",
+       x = "Colonial Overlord × Year",
+       y = "Interaction Coefficient Estimate") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+Effects_GDP
+```
+
+## Hints: 
+### If you wish to combine two or more plots
+.. you need to first write them into objects and then combine using the `patchwork` library. Choose more meaningful names than `plot1` and `plot2`, please ;). 
+```{r eval=TRUE}
+#install.packages("patchwork")
+library(patchwork) # you will need to install it first
+library(ggplot2)
+```
+
+```{r eval=TRUE}
+Main_effects + plot_spacer()+ Effects_GDP+  
+  plot_layout(ncol = 3)
+```
+
+### How is rate of change affected?
+```{r eval=TRUE}
+#let's define a function for percent change
+
+pctchange <- function(x) {
+ pct <- 100*((x - lag(x))/(lag(x)))
+ return (pct)
+}
+```
+
+## Possible expansions:
+1. Investigate closely two opposite cases (e.g. Liberia, Ethiopia) and delve into their colonial background. An empire for 300 years or 3 years under an aggressive inexperienced wanna-be-colonist?
+2. Recode the table on how long it is *since colonialism*. How much effect is there?
+3. Change the focus from Colonialism to political establishment. Add data on 'Duration_socialism', or 'Duration_dictatorship' for the last 100 years and check their effect. (Check the Varieties of Democracy project if you need more input https://v-dem.net/ )
+
+1) Investigate closely two opposite cases (e.g. Liberia, Ethiopia) and delve into their colonial background. An empire for 300 years or 3 years under an aggressive inexperienced wanna-be-colonist?
+```{r eval=TRUE}
+All_data <- full_join(colonized_data, not_colonized_data)
+
+All_data_filtered <- All_data %>% 
+  filter(Country=="Liberia"|Country=="Ethiopia"| Country=="Congo, Dem. Rep.") %>% 
+  arrange(year)
+
+ggplot(All_data_filtered, aes(x = year, y = gdpPercap, group = Country, color = Country))+
+  geom_line()+
+   labs(title = "GDP Over Time by Per Capita", 
+       x = "Year", 
+       y = "GDP (in USD)") +
+  theme_minimal()
+```
+Liberia:
+The area that is now Liberia has been inhabited since a least the 16th century. When the Mali and then the Songhai empires declined, the settlement increased in coastal areas. Liberia became a county in 1847. However before becoming an independent nation, Liberia was an African settlement created in 1822 by The American Colonization Society. Their goal was to create a country for all the freed slaves primarily in The United States. After becoming independent, Liberia is mostly inhabited by indigenous Africans, with the slaves' descendants comprising 5% of the population. 
+Source: https://www.bbc.com/news/world-africa-13729504
+
+Ethiopia:
+Ethiopia is Africa's oldest independent country and its second largest in terms of population. Apart from a five-year occupation by Mussolini's Italy, it has never been colonized. Before becoming Ethiopia the country was the kingdom of Aksum, the only Christian nation in ancient Africa. 
+Source: https://www.bbc.com/news/world-africa-13349398
+
+Democratic Republic of Congo:
+The area were DR Congo is today were before colonization an empire. It was however colonized by the Belgian King Leopold II who made Congo his personal colony in the 1870's. The time of colonization in Congo is brutal and deadly. Congo became in independent nation in 1960 but has since been troubled with conflict both from within and from outside the country.
+Source: https://www.bbc.com/news/world-africa-13283212
+
+
+```{r eval=FALSE, include=FALSE}
+colonized_data_with_year <- data.frame(
+  Country = c('India', 'Australia', 'Hong Kong, China','Canada', 'South Africa','Algeria', 'Vietnam', 'Morocco', 'Brazil', 'Mozambique',  'Indonesia', 'Suriname', 'Congo, Dem. Rep.', 'Rwanda', 'Namibia', 'Somalia', 'Libya', 'Eritrea', 'Philippines', 'Puerto Rico', 'Kazakhstan', 'Georgia', 'Moldova', 'Afghanistan', 'Tanzania',  'Czech Republic', 'Slovakia', 'Romania',  'Serbia', 'Bulgaria'),
+  Colonial_Overlord = c('United Kingdom', 'United Kingdom','United Kingdom','United Kingdom', 'United Kingdom', 'France', 'France', 'France', 'Portugal', 'Portugal', 'Netherlands', 'Netherlands', 'Belgium','Belgium', 'Germany', 'Italy', 'Italy','Italy', 'United States', 'United States', 'Russia', 'Russia','Russia', 'United Kingdom', 'Germany', 'Austria', 'Austria','Austria', 'Turkey','Turkey' ),
+  Years_of_Colonization = c(190, 132, 156, 108, 120, 132, 67, 44, 322, 477, 350, 235, 80, 40, 35, 36, 31, 62, 48, 126, 250, 108,103 ,80, 44,300, 500, 300, 350, 350
+),
+  End_year = c(1947, NA, NA, NA, 1910, 1962, 1949, 1912, 1822, 1975, 1949, 1975, 1960, 1962, 1990, 1960, 1951, 1993, 1946, NA, 1991, 1991, 1991, 1919, 1964, 1993, 1993, 1918, 1912, 1908))
+
+ggplot(All_data, aes(x = year, y =gdpPercap, group = Country, color = Country))+
+  geom_line()+
+  labs(title = "Mean GDP Over Time by Country", 
+       x = "Year", 
+       y = "Mean GDP (in USD)"))+
+  theme_minimal() +
+  theme(legend.position = "right")
+
+```  
+```{r eval=FALSE, include=FALSE}
+vdem %>%
+  filter(country_name == "Democratic Republic of the Congo") %>% 
+  arrange(year)
+```  
+
+# Evaluation
+
+After this initial bout of visualisations and tests, it is time to summarize your findings and reflect on them as well as the whole process of analysis. 
+
+1. Consider the pipeline from the beginning: by what criteria did you selected your (un-) colonized countries and colonizers? What biases / intent shaped your interpretations and thereby your results? What considerations or rules did you implement when encoding the 'victims' and 'perpetrators'? Are other interpretations possible and do they significantly change the results?
+
+2. Next, what sense do you make of the linear regressions? What significant outcomes do you see and how do you understand their visual outputs? Explain the meaning of the lm results, underscore the lessons learnt.
+
+3. Describe the visualisations to the reader: what should the reader notice and how should she understand the various log and other y axis values, the trendlines, groupings, and their colors etc.? Remember that data don't speak for themselves. What do we see? 
+
+4. Document the code so that each chunk has a rationale and an explanation. Beautify and explain concisely. 
+
+5. Finally, reflect on what lessons do you think this sort of analysis offers to the historian?
+
